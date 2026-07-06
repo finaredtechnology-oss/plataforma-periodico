@@ -1,0 +1,22 @@
+{
+  "name": "Amazonia Diario",
+  "short_name": "Amazonia",
+  "description": "Tu portal de noticias locales, nacionales e internacionales. Lee el diario digital en cualquier momento y lugar.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a4d2e",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/logo_amazonia.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/logo_amazonia.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}

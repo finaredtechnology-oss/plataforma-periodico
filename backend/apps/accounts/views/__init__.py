@@ -6,6 +6,7 @@ from apps.accounts.views.refresh import TokenRefreshView
 from apps.accounts.views.logout import LogoutView
 from apps.accounts.views.password_reset_request import PasswordResetRequestView
 from apps.accounts.views.password_reset_confirm import PasswordResetConfirmView
+from apps.accounts.views.activities import UserActivitiesListView
 
 __all__ = [
     'RegisterView',
@@ -16,6 +17,7 @@ __all__ = [
     'LogoutView',
     'PasswordResetRequestView',
     'PasswordResetConfirmView',
+    'UserActivitiesListView',
 ]
 
 

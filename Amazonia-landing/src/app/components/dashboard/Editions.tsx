@@ -38,14 +38,24 @@ interface Edition {
 }
 
 const getFullImageUrl = (path: string | null) => {
-  if (!path) return null;
+  if (!path) return '';
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
-  const backendHost = import.meta.env.VITE_API_URL 
-    ? import.meta.env.VITE_API_URL.replace('/api/v1', '') 
-    : (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '');
-  return `${backendHost}${path}`;
+  let cleanPath = path;
+  if (!cleanPath.startsWith('/')) {
+    cleanPath = '/' + cleanPath;
+  }
+  if (!cleanPath.startsWith('/media/')) {
+    cleanPath = '/media' + cleanPath;
+  }
+  let backendHost = '';
+  if (import.meta.env.VITE_API_URL) {
+    if (import.meta.env.VITE_API_URL.startsWith('http://') || import.meta.env.VITE_API_URL.startsWith('https://')) {
+      backendHost = import.meta.env.VITE_API_URL.replace('/api/v1', '');
+    }
+  }
+  return `${backendHost}${encodeURI(cleanPath)}`;
 };
 
 const NewspaperThumbnail: React.FC<{ src: string | null }> = ({ src }) => {
@@ -1132,28 +1142,18 @@ const Editions: React.FC = () => {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">Fecha de Edición</label>
+                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">Fecha de Registro</label>
                   <input
                     type="date"
                     required
+                    readOnly
                     value={formFechaEdicion}
-                    onChange={(e) => setFormFechaEdicion(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:border-brand-500 bg-slate-50 text-slate-800"
+                    className="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-semibold bg-slate-100 text-slate-500 cursor-not-allowed focus:outline-none"
                   />
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">Precio sugerido (PEN)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={formPrecio}
-                  onChange={(e) => setFormPrecio(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:border-brand-500 bg-slate-50 text-slate-800"
-                />
-              </div>
+
 
               <div className="flex gap-2.5 pt-2">
                 <button
@@ -1252,13 +1252,13 @@ const Editions: React.FC = () => {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wide">Fecha de Edición</label>
+                      <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wide">Fecha de Registro</label>
                       <input
                         type="date"
                         required
+                        readOnly
                         value={formFechaEdicion}
-                        onChange={(e) => setFormFechaEdicion(e.target.value)}
-                        className="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:border-brand-500 bg-slate-50 text-slate-800"
+                        className="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-semibold bg-slate-100 text-slate-500 cursor-not-allowed focus:outline-none"
                       />
                     </div>
                     <div className="space-y-1">
@@ -1274,19 +1274,7 @@ const Editions: React.FC = () => {
                     </div>
                   </div>
 
-                  {formModalidad === 'PAGO' && (
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wide">Precio Unitario (PEN)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        required
-                        value={formPrecio}
-                        onChange={(e) => setFormPrecio(e.target.value)}
-                        className="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:border-brand-500 bg-slate-50 text-slate-800"
-                      />
-                    </div>
-                  )}
+
 
                   {/* Sample Pages configuration */}
                   <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-2">

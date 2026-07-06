@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'apps.content',
     'apps.seo',
     'apps.configuration',
+    'apps.payments_methods_admin',
 ]
 
 MIDDLEWARE = [
@@ -130,8 +131,8 @@ LANDING_DIST_DIR = BASE_DIR.parent / 'Amazonia-landing' / 'dist'
 if LANDING_DIST_DIR.exists():
     STATICFILES_DIRS.append(LANDING_DIST_DIR)
 
-MEDIA_URL = 'media/'
-MEDIA_ROOT = '/var/www/media/'
+#MEDIA_URL = '/media/'
+#MEDIA_ROOT = '/var/www/media/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

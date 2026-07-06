@@ -10,3 +10,6 @@ EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.console.
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True
 
+# Media files directory for development
+MEDIA_ROOT = BASE_DIR.parent / 'media'
+

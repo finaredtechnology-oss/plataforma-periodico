@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronRight, Loader2, X, Lock, Sparkles } from 'lucide-react';
+import { useAuth } from '../contexts/auth';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 
 const getFullImageUrl = (path: string | null) => {
@@ -7,10 +9,20 @@ const getFullImageUrl = (path: string | null) => {
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
-  const backendHost = import.meta.env.VITE_API_URL 
-    ? import.meta.env.VITE_API_URL.replace('/api/v1', '') 
-    : 'http://127.0.0.1:8000';
-  return `${backendHost}${path}`;
+  let cleanPath = path;
+  if (!cleanPath.startsWith('/')) {
+    cleanPath = '/' + cleanPath;
+  }
+  if (!cleanPath.startsWith('/media/')) {
+    cleanPath = '/media' + cleanPath;
+  }
+  let backendHost = '';
+  if (import.meta.env.VITE_API_URL) {
+    if (import.meta.env.VITE_API_URL.startsWith('http://') || import.meta.env.VITE_API_URL.startsWith('https://')) {
+      backendHost = import.meta.env.VITE_API_URL.replace('/api/v1', '');
+    }
+  }
+  return `${backendHost}${encodeURI(cleanPath)}`;
 };
 
 const defaultNews = [
@@ -80,8 +92,12 @@ const formatCreationDate = (dateStr: string) => {
 };
 
 export function LatestNews() {
+  const { isAuthenticated, user, openAuthModal } = useAuth();
+  const navigate = useNavigate();
   const [newsData, setNewsData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isCheckingSub, setIsCheckingSub] = useState(false);
+  const [activeModal, setActiveModal] = useState<'login_required' | 'subscribe_required' | null>(null);
 
   useEffect(() => {
     const fetchNews = async () => {
@@ -99,6 +115,28 @@ export function LatestNews() {
 
   // Limit display to exactly the latest 5 items
   const itemsToDisplay = (newsData.length > 0 ? newsData : defaultNews).slice(0, 5);
+
+  const handleVerMas = async () => {
+    if (!isAuthenticated) {
+      setActiveModal('login_required');
+      return;
+    }
+
+    setIsCheckingSub(true);
+    try {
+      const response = await api.get('/user/subscriptions/');
+      if (response.data?.active_subscription) {
+        navigate('/noticias');
+      } else {
+        setActiveModal('subscribe_required');
+      }
+    } catch (err) {
+      console.warn("Could not check subscription status:", err);
+      setActiveModal('subscribe_required');
+    } finally {
+      setIsCheckingSub(false);
+    }
+  };
 
   return (
     <div>
@@ -156,10 +194,125 @@ export function LatestNews() {
         </div>
       )}
 
-      <button className="mt-4 flex items-center gap-2 text-orange-600 hover:text-orange-700 text-sm font-bold cursor-pointer transition-colors">
-        Ver más noticias
-        <ChevronRight size={16} />
+      <button 
+        onClick={handleVerMas}
+        disabled={isCheckingSub}
+        className="mt-4 flex items-center gap-2 text-orange-600 hover:text-orange-700 text-sm font-bold cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {isCheckingSub ? (
+          <>
+            Verificando...
+            <Loader2 size={16} className="animate-spin text-orange-500" />
+          </>
+        ) : (
+          <>
+            Ver más noticias
+            <ChevronRight size={16} />
+          </>
+        )}
       </button>
+
+      {activeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Overlay with blur */}
+          <div 
+            className="fixed inset-0 bg-[#0b1f13]/60 backdrop-blur-sm transition-opacity duration-300 animate-in fade-in"
+            onClick={() => setActiveModal(null)}
+          />
+
+          {/* Modal Card */}
+          <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-emerald-55 overflow-hidden z-10 transform transition-all duration-300 scale-100 flex flex-col max-h-[90vh] overflow-y-auto animate-in zoom-in-95">
+            {/* Top brand header bar */}
+            <div className="h-2 w-full bg-gradient-to-r from-[#1a4d2e] via-[#ea580c] to-[#1a4d2e]" />
+            
+            {/* Close Button */}
+            <button 
+              onClick={() => setActiveModal(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-655 transition-colors p-1.5 rounded-full hover:bg-slate-100 cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+
+            {/* Content Area */}
+            <div className="p-8 text-center">
+              {activeModal === 'login_required' ? (
+                <>
+                  <div className="w-14 h-14 bg-orange-50 border border-orange-100 rounded-full flex items-center justify-center mx-auto mb-5 animate-pulse">
+                    <Lock size={24} className="text-[#ea580c]" />
+                  </div>
+                  
+                  <h3 className="text-xl font-black text-slate-900 mb-2">
+                    Acceso Exclusivo
+                  </h3>
+                  
+                  <p className="text-xs text-slate-500 font-semibold leading-relaxed mb-6">
+                    Para explorar el historial de noticias y disfrutar de todos los beneficios de Amazonia, necesitas iniciar sesión y contar con una suscripción activa.
+                  </p>
+
+                  <div className="flex flex-col gap-2.5">
+                    <button
+                      onClick={() => {
+                        setActiveModal(null);
+                        openAuthModal('login');
+                      }}
+                      className="w-full py-3 px-4 rounded-xl text-white font-black bg-[#1a4d2e] hover:bg-[#143d24] transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer hover:shadow active:scale-[0.98]"
+                    >
+                      Iniciar Sesión
+                    </button>
+                    <button
+                      onClick={() => {
+                        setActiveModal(null);
+                        const planesEl = document.getElementById('planes');
+                        if (planesEl) {
+                          planesEl.scrollIntoView({ behavior: 'smooth' });
+                        }
+                      }}
+                      className="w-full py-3 px-4 rounded-xl text-[#ea580c] font-black border border-orange-200 hover:bg-orange-50/50 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
+                    >
+                      Ver Planes de Suscripción
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="w-14 h-14 bg-emerald-50 border border-emerald-100 rounded-full flex items-center justify-center mx-auto mb-5 animate-bounce">
+                    <Sparkles size={24} className="text-[#1a4d2e]" />
+                  </div>
+                  
+                  <h3 className="text-xl font-black text-slate-900 mb-2">
+                    Suscripción Requerida
+                  </h3>
+                  
+                  <p className="text-xs text-slate-500 font-semibold leading-relaxed mb-6 text-left">
+                    Hola {user?.nombres ? user.nombres.split(' ')[0] : 'Lector'}. Notamos que tu cuenta aún no cuenta con un plan activo. Suscríbete ahora para desbloquear todo el archivo de noticias y ediciones especiales sin límites.
+                  </p>
+
+                  <div className="flex flex-col gap-2.5">
+                    <button
+                      onClick={() => {
+                        setActiveModal(null);
+                        const planesEl = document.getElementById('planes');
+                        if (planesEl) {
+                          planesEl.scrollIntoView({ behavior: 'smooth' });
+                        }
+                      }}
+                      className="w-full py-3 px-4 rounded-xl text-white font-black bg-[#ea580c] hover:bg-[#d44f0a] transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer hover:shadow active:scale-[0.98]"
+                    >
+                      Ver Planes de Suscripción
+                    </button>
+                    <button
+                      onClick={() => setActiveModal(null)}
+                      className="w-full py-3 px-4 rounded-xl text-slate-550 hover:text-slate-800 font-black border border-slate-200 hover:bg-slate-50 transition-all cursor-pointer active:scale-[0.98]"
+                    >
+                      Tal vez más tarde
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

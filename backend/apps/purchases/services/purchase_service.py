@@ -366,6 +366,26 @@ def confirm_purchase_mock(
                 ref_upper = (compra.referencia_interna or '').upper()
                 is_plan = any(kw in ref_upper for kw in ['DIARIO', 'MENSUAL', 'ANUAL'])
                 
+                # To avoid unique constraint violation (uq_com_usuario_edicion_pagada)
+                # for plan purchases, dynamically assign a different published edition 
+                # that has not been purchased by the user yet.
+                if is_plan:
+                    paid_edition_ids = Compra.objects.using(using).filter(
+                        usuario=usuario,
+                        estado=Compra.PAGADO
+                    ).exclude(id=compra.id).values_list('edicion_id', flat=True)
+                    
+                    if edicion.id in paid_edition_ids:
+                        from apps.editions.models.edicion import Edicion
+                        alt_edition = Edicion.objects.using(using).filter(estado='PUBLICADA').exclude(id__in=paid_edition_ids).first()
+                        if not alt_edition:
+                            alt_edition = Edicion.objects.using(using).exclude(id__in=paid_edition_ids).first()
+                        
+                        if alt_edition:
+                            compra.edicion = alt_edition
+                            compra.empresa_id = alt_edition.empresa_id
+                            edicion = alt_edition
+                
                 has_active_plan = False
                 if is_plan:
                     from apps.plans.services.user_plan_service import check_user_has_active_plan
@@ -564,6 +584,17 @@ def check_user_has_active_subscription(user, using='periodico_db') -> bool:
     Checks if the user has an active subscription (DIARIO, MENSUAL, or ANUAL)
     whose validity period (calculated from purchase confirmation time) has not expired.
     """
+    expiry = get_user_active_subscription_expiry(user, using=using)
+    return expiry is not None
+
+
+def get_user_subscription_periods(user, using='periodico_db'):
+    """
+    Calculates the actual start and end dates for all confirmed subscription purchases
+    by chaining consecutive/pre-purchased subscriptions.
+    Returns a list of tuples: (purchase, start_datetime, expiry_datetime)
+    sorted by start_datetime.
+    """
     from django.utils import timezone
     from apps.purchases.models.compra import Compra
     from datetime import timedelta
@@ -582,31 +613,94 @@ def check_user_has_active_subscription(user, using='periodico_db') -> bool:
         except ValueError:
             return sourcedate.replace(year=sourcedate.year + years, day=28)
 
-    now = timezone.now()
-    
-    # Query confirmed purchases that represent a plan
     purchases = Compra.objects.using(using).filter(
         usuario=user,
         estado=Compra.PAGADO,
         fecha_confirmacion__isnull=False
     )
     
+    # Handle list sorting safely for both Django QuerySets and unittest mocks
+    if hasattr(purchases, 'order_by') and not isinstance(purchases, list):
+        purchases = purchases.order_by('fecha_confirmacion')
+    else:
+        purchases = sorted(purchases, key=lambda x: x.fecha_confirmacion)
+
+    periods = []
+    
     for purchase in purchases:
         ref = purchase.referencia_interna.upper()
-        start = purchase.fecha_confirmacion
-        
-        # Calculate expiry based on plan type
+        # Determine duration
         if "DIARIO" in ref:
-            expiry = start + timedelta(hours=24)
+            delta_fn = lambda start: start + timedelta(hours=24)
         elif "MENSUAL" in ref:
-            expiry = add_months(start, 1)
+            delta_fn = lambda start: add_months(start, 1)
         elif "ANUAL" in ref:
-            expiry = add_years(start, 1)
+            delta_fn = lambda start: add_years(start, 1)
         else:
-            continue
-            
+            continue  # Not a subscription purchase
+
+        confirm_time = purchase.fecha_confirmacion
+        
+        # Check if there is an active/overlapping chain before this subscription
+        if periods:
+            last_purchase, last_start, last_expiry = periods[-1]
+            if confirm_time <= last_expiry:
+                # Chain starts immediately when the previous one ends
+                start_time = last_expiry
+            else:
+                # Starts when confirmed because the previous one has already expired
+                start_time = confirm_time
+        else:
+            start_time = confirm_time
+
+        expiry_time = delta_fn(start_time)
+        periods.append((purchase, start_time, expiry_time))
+
+    return periods
+
+
+def get_user_active_subscription_expiry(user, using='periodico_db'):
+    """
+    Returns the maximum expiration date of the user's active subscriptions (DIARIO, MENSUAL, or ANUAL).
+    Supports pre-purchased / chained subscription periods.
+    """
+    start, expiry = get_user_active_subscription_details(user, using=using)
+    return expiry
+
+
+def get_user_active_subscription_details(user, using='periodico_db'):
+    """
+    Returns the active subscription interval (start_date, expiry_date) for the user.
+    If the user has an active chain of subscriptions, start_date is the beginning of 
+    the active continuous block, and expiry_date is the end of the chain.
+    """
+    from django.utils import timezone
+    now = timezone.now()
+    periods = get_user_subscription_periods(user, using=using)
+    
+    # We find if 'now' is inside any period
+    for idx, (purchase, start, expiry) in enumerate(periods):
         if start <= now < expiry:
-            return True
+            # We found the active period.
+            # Find the start of this continuous chain
+            chain_start = start
+            for j in range(idx - 1, -1, -1):
+                prev_purchase, prev_start, prev_expiry = periods[j]
+                if prev_expiry >= chain_start:
+                    chain_start = prev_start
+                else:
+                    break
+                    
+            # Find the end of this continuous chain
+            chain_expiry = expiry
+            for j in range(idx + 1, len(periods)):
+                next_purchase, next_start, next_expiry = periods[j]
+                if next_start <= chain_expiry:
+                    chain_expiry = next_expiry
+                else:
+                    break
             
-    return False
+            return chain_start, chain_expiry
+            
+    return None, None
 

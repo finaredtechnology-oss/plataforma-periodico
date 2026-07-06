@@ -28,16 +28,36 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/auth';
 import api from '../../services/api';
+import { AdBanner } from '../AdBanner';
 
 const getFullImageUrl = (path: string | null) => {
-  if (!path) return null;
+  if (!path) return '';
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
-  const backendHost = import.meta.env.VITE_API_URL 
-    ? import.meta.env.VITE_API_URL.replace('/api/v1', '') 
-    : 'http://127.0.0.1:8000';
-  return `${backendHost}${path}`;
+  let cleanPath = path;
+  if (!cleanPath.startsWith('/')) {
+    cleanPath = '/' + cleanPath;
+  }
+  if (!cleanPath.startsWith('/media/')) {
+    cleanPath = '/media' + cleanPath;
+  }
+  let backendHost = '';
+  if (import.meta.env.VITE_API_URL) {
+    if (import.meta.env.VITE_API_URL.startsWith('http://') || import.meta.env.VITE_API_URL.startsWith('https://')) {
+      backendHost = import.meta.env.VITE_API_URL.replace('/api/v1', '');
+    }
+  }
+  return `${backendHost}${encodeURI(cleanPath)}`;
+};
+
+const iconMap: Record<string, React.ComponentType<any>> = {
+  BookCopy: BookCopy,
+  User: User,
+  CreditCard: CreditCard,
+  Download: Download,
+  Heart: Heart,
+  Bookmark: Bookmark
 };
 
 const DashboardLayout: React.FC = () => {
@@ -47,7 +67,11 @@ const DashboardLayout: React.FC = () => {
   
   // Reader Tabs State
   const [activeReaderTab, setActiveReaderTab] = useState<'inicio' | 'mis-ediciones' | 'colecciones' | 'favoritos' | 'suscripciones' | 'perfil'>(() => {
-    return (localStorage.getItem('amazonia_active_reader_tab') as any) || 'inicio';
+    const saved = localStorage.getItem('amazonia_active_reader_tab') as any;
+    if (saved === 'mis-ediciones' || saved === 'colecciones' || saved === 'favoritos') {
+      return 'inicio';
+    }
+    return saved || 'inicio';
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'todas' | 'dia' | 'mes'>('todas');
@@ -66,6 +90,22 @@ const DashboardLayout: React.FC = () => {
   // Real assigned editions state
   const [assignedEditions, setAssignedEditions] = useState<any[]>([]);
   const [isLoadingEditions, setIsLoadingEditions] = useState(false);
+
+  // Real user activities state
+  const [activitiesList, setActivitiesList] = useState<any[]>([]);
+  const [isLoadingActivities, setIsLoadingActivities] = useState(false);
+
+  const fetchActivities = async () => {
+    setIsLoadingActivities(true);
+    try {
+      const res = await api.get('auth/activities/');
+      setActivitiesList(res.data || []);
+    } catch (err) {
+      console.error('Error fetching activities:', err);
+    } finally {
+      setIsLoadingActivities(false);
+    }
+  };
 
   const fetchAssignedEditions = async () => {
     if (!user?.id) return;
@@ -151,6 +191,7 @@ const DashboardLayout: React.FC = () => {
     if (!isPublisher) {
       fetchActiveSubscription();
       fetchAssignedEditions();
+      fetchActivities();
     }
   }, [activeReaderTab, user, companies]);
 
@@ -164,7 +205,32 @@ const DashboardLayout: React.FC = () => {
     setPublisherSidebarOpen(false);
   }, [location.pathname]);
 
-  const isPublisher = (companies && companies.length > 0) || user?.email === 'admin';
+  const isStandalone = typeof window !== 'undefined' && (
+    window.matchMedia('(display-mode: standalone)').matches || 
+    (window.navigator as any).standalone === true
+  );
+
+  const isPublisher = !isStandalone && ((companies && companies.length > 0) || user?.email === 'admin');
+
+  // Redirection for admin routes in standalone mode
+  useEffect(() => {
+    if (isStandalone) {
+      const adminRoutes = [
+        '/dashboard/editions',
+        '/dashboard/users',
+        '/dashboard/subscribers',
+        '/dashboard/plans',
+        '/dashboard/payments-methods',
+        '/dashboard/landing-config',
+        '/dashboard/landing-editions',
+        '/dashboard/landing-news'
+      ];
+      if (adminRoutes.some(route => location.pathname.startsWith(route))) {
+        navigate('/dashboard', { replace: true });
+      }
+    }
+  }, [location.pathname, isStandalone, navigate]);
+
   const activeCompany = isPublisher 
     ? (companies.find(c => c.id === activeCompanyId) || companies[0] || { id: 1, nombre: 'Amazonia', razon_social: 'Amazonia', estado: 'ACTIVO' }) 
     : null;
@@ -209,16 +275,6 @@ const DashboardLayout: React.FC = () => {
       { name: 'La República', logoText: 'La República', bg: 'bg-[#c1121f] text-white', desc: 'Periodismo con independencia' }
     ];
 
-    // Mock activity list
-    const actividades = [
-      { type: 'read', text: 'Leiste una edición', detail: 'La Voz del Sur', sub: 'Edición del 15 Mayo 2024', time: 'Hoy, 09:15 AM', icon: BookCopy, iconColor: 'text-emerald-600 bg-emerald-50' },
-      { type: 'download', text: 'Descargaste una edición', detail: 'El Pueblo', sub: 'Edición de Mayo 2024', time: 'Ayer, 04:30 PM', icon: Download, iconColor: 'text-emerald-600 bg-emerald-50' },
-      { type: 'favorite', text: 'Marcaste como favorito', detail: 'Correo Arequipa', sub: 'Edición del 14 Mayo 2024', time: 'Ayer, 11:20 AM', icon: Heart, iconColor: 'text-amber-500 bg-amber-50' },
-      { type: 'read', text: 'Abriste una edición', detail: 'Diario Opinión', sub: 'Edición de Abril 2024', time: '12 Mayo, 08:10 AM', icon: BookCopy, iconColor: 'text-emerald-600 bg-emerald-50' },
-      { type: 'bookmark', text: 'Guardaste una edición', detail: 'Gestión', sub: 'Edición del 13 Mayo 2024', time: '11 Mayo, 06:45 PM', icon: Bookmark, iconColor: 'text-emerald-600 bg-emerald-50' },
-      { type: 'session', text: 'Iniciaste sesión', detail: 'Dispositivo: Chrome', sub: 'Arequipa, Perú', time: '10 Mayo, 08:10 AM', icon: User, iconColor: 'text-emerald-600 bg-emerald-50' }
-    ];
-
     return (
       <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-800">
         
@@ -256,6 +312,7 @@ const DashboardLayout: React.FC = () => {
                     Inicio
                   </button>
 
+                  {/* Ocultado temporalmente por el momento
                   <button
                     onClick={() => { setActiveReaderTab('mis-ediciones'); navigate('/dashboard'); }}
                     className={`flex items-center w-full px-3 py-2.5 text-xs font-bold rounded-xl transition-all duration-150 cursor-pointer ${
@@ -291,6 +348,7 @@ const DashboardLayout: React.FC = () => {
                     <Heart className={`mr-2.5 h-4.5 w-4.5 ${activeReaderTab === 'favoritos' && location.pathname === '/dashboard' ? 'text-brand-600' : 'text-slate-400'}`} />
                     Favoritos
                   </button>
+                  */}
 
                   <button
                     onClick={() => { setActiveReaderTab('suscripciones'); navigate('/dashboard'); }}
@@ -486,12 +544,14 @@ const DashboardLayout: React.FC = () => {
                         <h3 className="text-base font-black text-slate-900">Mis ediciones</h3>
                         <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Periódicos que has comprado o a los que estás suscrito.</p>
                       </div>
+                      {/* Ocultado por el momento
                       <button 
                         onClick={() => setActiveReaderTab('mis-ediciones')} 
                         className="text-xs font-bold text-brand-700 hover:text-brand-800 flex items-center gap-0.5 transition-colors cursor-pointer"
                       >
                         Ver todas <ChevronRight className="w-3.5 h-3.5" />
                       </button>
+                      */}
                     </div>
 
                     {/* Cards grid */}
@@ -567,9 +627,11 @@ const DashboardLayout: React.FC = () => {
                                   >
                                     Leer ahora
                                   </Link>
+                                  {/* Ocultado por el momento
                                   <button className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
                                     <Bookmark className="w-3.5 h-3.5" />
                                   </button>
+                                  */}
                                 </div>
                               </div>
                             </div>
@@ -580,7 +642,7 @@ const DashboardLayout: React.FC = () => {
                   </div>
 
                   {/* Highlights Banner row */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-left pt-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-left pt-2">
                     
                     {/* Item 1 */}
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
@@ -608,7 +670,7 @@ const DashboardLayout: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Item 3 */}
+                    {/* Item 3 Ocultado por el momento
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
                       <div className="w-10 h-10 rounded-full bg-brand-500/10 flex items-center justify-center text-brand-700 flex-shrink-0">
                         <Heart className="w-5 h-5 animate-pulse" />
@@ -620,40 +682,17 @@ const DashboardLayout: React.FC = () => {
                         </p>
                       </div>
                     </div>
+                    */}
 
                   </div>
 
-                  {/* Te puede interesar colored brand list */}
-                  <div className="space-y-4 text-left">
-                    <div className="flex justify-between items-end">
-                      <div>
-                        <h3 className="text-base font-black text-slate-900">Te puede interesar</h3>
-                        <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Descubre más periódicos que podrían interesarte.</p>
-                      </div>
+                  {/* Te puede interesar / Publicidad */}
+                  <div className="w-full text-left">
+                    <div className="px-4 sm:px-6 mb-2">
+                      <h3 className="text-base font-black text-slate-900">Te puede interesar</h3>
+                      <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Enlaces de interés y ofertas de nuestros patrocinadores.</p>
                     </div>
-
-                    {/* Colored Cards grid */}
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-5">
-                      {tePuedeInteresar.map((item, i) => (
-                        <div key={i} className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col justify-between hover:shadow-md transition-all duration-300 min-h-[160px] text-center">
-                          {/* Banner logo */}
-                          <div className={`w-full py-3 text-xs font-serif font-black tracking-tight rounded-xl flex items-center justify-center ${item.bg}`}>
-                            {item.logoText}
-                          </div>
-                          
-                          <p className="text-[10px] text-slate-500 font-semibold my-3.5 leading-snug">
-                            {item.desc}
-                          </p>
-
-                          <Link 
-                            to="/dashboard/viewer" 
-                            className="w-full py-1.5 text-[9px] font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-brand-50 text-brand-700 hover:border-brand-300 transition-colors"
-                          >
-                            Ver ediciones
-                          </Link>
-                        </div>
-                      ))}
-                    </div>
+                    <AdBanner positionId="dashboard-banner" initialIndex={2} />
                   </div>
                 </>
               )}
@@ -974,6 +1013,7 @@ const DashboardLayout: React.FC = () => {
                         </div>
                       </div>
                     </div>
+                  )}
 
                   {/* Available Plans Grid */}
                   <div className="space-y-6">
@@ -1127,35 +1167,45 @@ const DashboardLayout: React.FC = () => {
 
                 {/* Activity List */}
                 <div className="space-y-5">
-                  {actividades.map((act, i) => {
-                    const ActIcon = act.icon;
-                    return (
-                      <div key={i} className="flex items-start justify-between gap-3 text-left">
-                        <div className="flex items-start gap-3">
-                          {/* Icon wrapper */}
-                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${act.iconColor}`}>
-                            <ActIcon className="w-4.5 h-4.5" />
-                          </div>
-                          <div>
-                            <p className="text-xs font-black text-slate-800 leading-tight">
-                              {act.text}
-                            </p>
-                            <p className="text-[10px] text-slate-600 font-bold mt-0.5 leading-snug">
-                              {act.detail}
-                            </p>
-                            {act.sub && (
-                              <p className="text-[9px] text-slate-400 font-medium leading-none mt-0.5">
-                                {act.sub}
+                  {isLoadingActivities ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
+                    </div>
+                  ) : activitiesList.length > 0 ? (
+                    activitiesList.map((act, i) => {
+                      const ActIcon = iconMap[act.icon] || User;
+                      return (
+                        <div key={i} className="flex items-start justify-between gap-3 text-left">
+                          <div className="flex items-start gap-3">
+                            {/* Icon wrapper */}
+                            <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${act.iconColor}`}>
+                              <ActIcon className="w-4.5 h-4.5" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-black text-slate-800 leading-tight">
+                                {act.text}
                               </p>
-                            )}
+                              <p className="text-[10px] text-slate-600 font-bold mt-0.5 leading-snug">
+                                {act.detail}
+                              </p>
+                              {act.sub && (
+                                <p className="text-[9px] text-slate-400 font-medium leading-none mt-0.5">
+                                  {act.sub}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-[8px] text-slate-400 font-bold whitespace-nowrap mt-0.5 text-right flex-shrink-0">
+                            {act.time}
                           </div>
                         </div>
-                        <div className="text-[8px] text-slate-400 font-bold whitespace-nowrap mt-0.5 text-right flex-shrink-0">
-                          {act.time}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  ) : (
+                    <p className="text-xs text-slate-400 font-bold text-center py-8">
+                      No hay actividades recientes.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1190,6 +1240,7 @@ const DashboardLayout: React.FC = () => {
     { name: 'Ediciones Landing', href: '/dashboard/landing-editions', icon: ImageIcon },
     { name: 'Lo que está pasando', href: '/dashboard/landing-news', icon: Newspaper },
     { name: 'Usuarios', href: '/dashboard/users', icon: User },
+    { name: 'Métodos de Pago', href: '/dashboard/payments-methods', icon: CreditCard },
     { name: 'Configuración', href: '/dashboard/settings', icon: Settings },
   ];
 

@@ -75,17 +75,25 @@ class AccessServiceTest(SimpleTestCase):
         self.mock_calc_perms = self.calc_perms_patcher.start()
         self.mock_calc_perms.return_value = set()
 
+        # Start subscription expiry patcher
+        self.sub_expiry_patcher = patch('apps.purchases.services.purchase_service.get_user_active_subscription_details')
+        self.mock_sub_expiry = self.sub_expiry_patcher.start()
+        self.mock_sub_expiry.return_value = (None, None)
+
     def tearDown(self):
         self.calc_perms_patcher.stop()
+        self.sub_expiry_patcher.stop()
         Edicion.paginas = self.original_paginas_descriptor
 
     def test_can_user_read_edition_free(self):
         """
-        Verify that user can read a free edition without explicit access records.
+        Verify that user can read a free edition with active subscription.
         """
         self.mock_edition.modalidad = 'GRATUITA'
+        self.mock_edition.fecha_publicacion = timezone.now() - timedelta(days=1)
         # Mock that pages exist
         self.mock_edition.paginas.filter.return_value.exists.return_value = True
+        self.mock_sub_expiry.return_value = timezone.now() + timedelta(days=30)
 
         res = can_user_read_edition(self.mock_user, self.mock_edition)
         self.assertTrue(res)
@@ -95,10 +103,13 @@ class AccessServiceTest(SimpleTestCase):
         Verify that reading is denied if there are no processed pages available.
         """
         self.mock_edition.modalidad = 'GRATUITA'
+        self.mock_edition.fecha_publicacion = timezone.now() - timedelta(days=1)
         self.mock_edition.paginas.filter.return_value.exists.return_value = False
+        self.mock_sub_expiry.return_value = timezone.now() + timedelta(days=30)
 
         res = can_user_read_edition(self.mock_user, self.mock_edition)
         self.assertFalse(res)
+
 
     @patch('apps.access.models.acceso_edicion.AccesoEdicion.objects')
     def test_can_user_read_edition_with_active_access(self, mock_access_objects):
@@ -222,6 +233,8 @@ class AccessServiceTest(SimpleTestCase):
         Verify that a free access is automatically created if the edition is free.
         """
         self.mock_edition.modalidad = 'GRATUITA'
+        self.mock_edition.fecha_publicacion = timezone.now() - timedelta(days=1)
+        self.mock_sub_expiry.return_value = timezone.now() + timedelta(days=30)
         
         # Mock no existing access
         mock_filter_qs = mock_access_objects.using.return_value.filter.return_value.filter.return_value
@@ -235,6 +248,7 @@ class AccessServiceTest(SimpleTestCase):
 
         access = get_or_create_reading_access(self.mock_user, self.mock_edition)
         self.assertEqual(access, mock_created_access)
+
 
 
 @patch('django.db.transaction.atomic', DummyAtomic)
@@ -263,15 +277,21 @@ class LibraryListViewTest(SimpleTestCase):
         self.mock_calc_perms = self.calc_perms_patcher.start()
         self.mock_calc_perms.return_value = set()
 
+        self.sub_expiry_patcher = patch('apps.purchases.services.purchase_service.get_user_active_subscription_details')
+        self.mock_sub_expiry = self.sub_expiry_patcher.start()
+        self.mock_sub_expiry.return_value = (timezone.now() - timedelta(days=5), timezone.now() + timedelta(days=30))
+
     def tearDown(self):
         self.get_companies_patcher.stop()
         self.calc_perms_patcher.stop()
+        self.sub_expiry_patcher.stop()
 
     def test_library_empty(self, mock_edition_objects, mock_access_objects, mock_is_super):
         """
         Verify library returns empty list if no editions are accessible.
         """
         mock_is_super.return_value = False
+        self.mock_sub_expiry.return_value = (None, None)
         
         # Mock active accesses to be empty
         mock_access_qs = mock_access_objects.using.return_value.filter.return_value.filter.return_value
@@ -349,3 +369,100 @@ class LibraryListViewTest(SimpleTestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]['id'], 100)
         self.assertEqual(response.data[0]['titulo'], 'Edición Test')
+
+
+@patch('django.db.transaction.atomic', DummyAtomic)
+@patch('apps.purchases.services.purchase_service.get_user_active_subscription_details')
+@patch('apps.editions.models.edicion.Edicion.objects')
+class UserAssignedEditionsListViewTest(SimpleTestCase):
+    def setUp(self):
+        self.databases = {'default', 'periodico_db'}
+
+        self.mock_user = Usuario(
+            id=1,
+            usr_correo="user@example.com",
+            nombres="John",
+            apellidos="Doe",
+            estado="ACTIVO",
+            correo_verificado=True
+        )
+
+    def test_user_editions_empty_when_no_subscription(self, mock_edition_objects, mock_sub_expiry):
+        """
+        Verify that user assigned editions returns an empty list if there's no active subscription.
+        """
+        mock_sub_expiry.return_value = (None, None)
+
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        from apps.access.views.library_views import UserAssignedEditionsListView
+
+        factory = APIRequestFactory()
+        request = factory.get('/api/v1/users/1/editions/')
+        force_authenticate(request, user=self.mock_user)
+
+        view = UserAssignedEditionsListView.as_view()
+        response = view(request, user_id=1)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+    def test_user_editions_visible_with_active_subscription(self, mock_edition_objects, mock_sub_expiry):
+        """
+        Verify that editions published up to subscription end date are returned.
+        """
+        mock_sub_expiry.return_value = (timezone.now() - timedelta(days=5), timezone.now() + timedelta(days=30))
+
+        mock_company = Empresa(
+            id=10,
+            ruc="12345678901",
+            razon_social="Empresa Test",
+            nombre_comercial="Empresa Test",
+            slug="empresa-test",
+            estado="ACTIVA",
+            eliminado=False
+        )
+
+        mock_edition = Edicion(
+            id=100,
+            empresa=mock_company,
+            codigo='E01',
+            titulo='Edición Test',
+            slug='edicion-test',
+            fecha_edicion=timezone.now().date(),
+            fecha_publicacion=timezone.now(),
+            modalidad='PAGO',
+            precio=10.00,
+            moneda='PEN',
+            numero_paginas=20,
+            es_destacada=False,
+            permite_muestra=False,
+            paginas_muestra=None
+        )
+        # Mock archivos_asociados descriptor at class level to avoid DB query in test
+        original_archivos = Edicion.archivos_asociados
+        Edicion.archivos_asociados = MagicMock()
+        Edicion.archivos_asociados.filter.return_value.select_related.return_value.first.return_value = None
+
+        try:
+            mock_edition_qs = mock_edition_objects.using.return_value.select_related.return_value.filter.return_value.filter.return_value
+            mock_edition_qs.distinct.return_value.order_by.return_value = [mock_edition]
+
+            from rest_framework.test import APIRequestFactory, force_authenticate
+            from apps.access.views.library_views import UserAssignedEditionsListView
+
+            factory = APIRequestFactory()
+            request = factory.get('/api/v1/users/1/editions/')
+            force_authenticate(request, user=self.mock_user)
+
+            view = UserAssignedEditionsListView.as_view()
+            response = view(request, user_id=1)
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.data), 1)
+            self.assertEqual(response.data[0]['edition_id'], 100)
+            self.assertEqual(response.data[0]['title'], 'Edición Test')
+        finally:
+            # Restore descriptor
+            Edicion.archivos_asociados = original_archivos
+
+

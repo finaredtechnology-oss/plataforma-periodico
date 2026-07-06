@@ -214,12 +214,11 @@ class EditionsManagementTests(SimpleTestCase):
         
         from apps.editions.services.edition_update_service import update_edition
         
-        # Update title and price
-        data = {"titulo": "Título Modificado", "precio": 25.00}
+        # Update title
+        data = {"titulo": "Título Modificado"}
         
         edition = update_edition(company_id=10, edition_id=100, user=self.editor, data=data)
         self.assertEqual(edition.titulo, "Título Modificado")
-        self.assertEqual(edition.precio, 25.00)
         self.assertEqual(edition.actualizado_por, self.editor)
         mock_audit.assert_called_once()
 
@@ -230,12 +229,12 @@ class EditionsManagementTests(SimpleTestCase):
         
         from apps.editions.services.edition_update_service import update_edition
         
-        # Attempt to change price and currency of published edition
+        # Attempt to change codigo and modalidad of published edition
         with self.assertRaises(ValidationError):
-            update_edition(company_id=10, edition_id=101, user=self.editor, data={"precio": 99.00})
+            update_edition(company_id=10, edition_id=101, user=self.editor, data={"codigo": "NEW-CODE"})
 
         with self.assertRaises(ValidationError):
-            update_edition(company_id=10, edition_id=101, user=self.editor, data={"moneda": "USD"})
+            update_edition(company_id=10, edition_id=101, user=self.editor, data={"modalidad": "PAGO"})
 
     # 5. Schedule Service
     @patch('apps.editions.services.edition_schedule_service.transaction.atomic', side_effect=dummy_atomic)

@@ -730,6 +730,7 @@ class PublicSampleViewsTest(SimpleTestCase):
 class LibraryListViewTest(SimpleTestCase):
 
     def setUp(self):
+        self.databases = {'default', 'periodico_db'}
         self.user = _make_user()
         self.get_companies_patcher = patch(
             'apps.access.views.library_views.get_active_user_companies')
@@ -741,9 +742,15 @@ class LibraryListViewTest(SimpleTestCase):
         self.mock_calc_perms = self.calc_perms_patcher.start()
         self.mock_calc_perms.return_value = set()
 
+        self.sub_expiry_patcher = patch(
+            'apps.purchases.services.purchase_service.get_user_active_subscription_details')
+        self.mock_sub_expiry = self.sub_expiry_patcher.start()
+        self.mock_sub_expiry.return_value = (None, None)
+
     def tearDown(self):
         self.get_companies_patcher.stop()
         self.calc_perms_patcher.stop()
+        self.sub_expiry_patcher.stop()
 
     def _get_library(self, user):
         from rest_framework.test import APIRequestFactory, force_authenticate
@@ -768,6 +775,7 @@ class LibraryListViewTest(SimpleTestCase):
         """Returns published editions for user with active access."""
         mock_is_super.return_value = False
         mock_acc_obj.using.return_value.filter.return_value.filter.return_value.values_list.return_value = [100]
+        self.mock_sub_expiry.return_value = (timezone.now() - timedelta(days=5), timezone.now() + timedelta(days=30))
 
         company = _make_company()
         edition = _make_edition(company=company)

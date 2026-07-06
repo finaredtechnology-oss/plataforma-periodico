@@ -110,10 +110,10 @@ def run_validations():
             tables = [r[0] for r in cur.fetchall()]
             table_count = len(tables)
             
-            if table_count in [54, 56]:
+            if table_count in [54, 55, 56, 57]:
                 print(f"   -> Exitoso: Se encontraron {table_count} tablas en el esquema.")
             else:
-                print(f"   -> Fallo: Se encontraron {table_count} tablas en vez de las 54 o 56 esperadas.")
+                print(f"   -> Fallo: Se encontraron {table_count} tablas en vez de las 54, 55, 56 o 57 esperadas.")
                 print(f"   Tablas encontradas: {', '.join(tables) if tables else 'Ninguna'}")
                 conn.close()
                 sys.exit(1)

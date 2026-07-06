@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { 
   ArrowLeft, Check, Copy, Upload, ShieldCheck, Loader2, 
   Calendar, CreditCard, ChevronRight, Rocket, CheckCircle2,
-  Smartphone, Landmark, QrCode, Lock
+  Smartphone, Landmark, QrCode, Lock, X
 } from 'lucide-react';
 import { toast } from 'sonner';
 import logoAmazonia from '../../imports/logo_amazonia.png';
@@ -220,6 +220,75 @@ const PaymentPage: React.FC = () => {
   // Flow Step: 'select_method' | 'upload_receipt'
   const [step, setStep] = useState<'select_method' | 'upload_receipt'>('select_method');
   const [paymentMethod, setPaymentMethod] = useState<'yape' | 'plin' | 'banco' | 'qr'>('yape');
+  const [zoomQrActive, setZoomQrActive] = useState(false);
+
+  const [dbMethods, setDbMethods] = useState<any[]>([]);
+  const [loadingMethods, setLoadingMethods] = useState(true);
+
+  const getFullImageUrl = (path: string | null) => {
+    if (!path) return '';
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    let cleanPath = path;
+    if (!cleanPath.startsWith('/')) {
+      cleanPath = '/' + cleanPath;
+    }
+    if (!cleanPath.startsWith('/media/')) {
+      cleanPath = '/media' + cleanPath;
+    }
+    let backendHost = '';
+    if (import.meta.env.VITE_API_URL) {
+      if (import.meta.env.VITE_API_URL.startsWith('http://') || import.meta.env.VITE_API_URL.startsWith('https://')) {
+        backendHost = import.meta.env.VITE_API_URL.replace('/api/v1', '');
+      }
+    }
+    return `${backendHost}${encodeURI(cleanPath)}`;
+  };
+
+  useEffect(() => {
+    const fetchActiveMethods = async () => {
+      try {
+        const response = await api.get('/payments-methods/');
+        setDbMethods(response.data || []);
+      } catch (err) {
+        console.error("Error fetching payment methods", err);
+      } finally {
+        setLoadingMethods(false);
+      }
+    };
+    fetchActiveMethods();
+  }, []);
+
+  const yapeMethod = dbMethods.find(m => m.nombre.toLowerCase().includes('yape'));
+  const plinMethod = dbMethods.find(m => m.nombre.toLowerCase().includes('plin'));
+  const bancoMethod = dbMethods.find(m => m.nombre.toLowerCase().includes('banco') || m.nombre.toLowerCase().includes('cuenta'));
+  const qrMethod = dbMethods.find(m => !m.nombre.toLowerCase().includes('yape') && !m.nombre.toLowerCase().includes('plin') && !m.nombre.toLowerCase().includes('banco') && !m.nombre.toLowerCase().includes('cuenta'));
+  
+  const getSelectedMethodDetails = () => {
+    if (paymentMethod === 'yape') return yapeMethod;
+    if (paymentMethod === 'plin') return plinMethod;
+    if (paymentMethod === 'banco') return bancoMethod;
+    return qrMethod || dbMethods.find(m => m.nombre.toLowerCase().includes('qr'));
+  };
+
+  const currentMethodDetails = getSelectedMethodDetails();
+
+  useEffect(() => {
+    if (dbMethods.length > 0) {
+      const activeYape = dbMethods.find(m => m.nombre.toLowerCase().includes('yape'));
+      if (activeYape) {
+        setPaymentMethod('yape');
+      } else {
+        const first = dbMethods[0];
+        const nameLower = first.nombre.toLowerCase();
+        if (nameLower.includes('yape')) setPaymentMethod('yape');
+        else if (nameLower.includes('plin')) setPaymentMethod('plin');
+        else if (nameLower.includes('banco') || nameLower.includes('cuenta')) setPaymentMethod('banco');
+        else setPaymentMethod('qr');
+      }
+    }
+  }, [dbMethods]);
   
   // File upload state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -453,77 +522,98 @@ const PaymentPage: React.FC = () => {
                   </div>
 
                   <div className="space-y-4">
-                    {/* Option 1: Cuenta bancaria */}
-                    <button
-                      type="button"
-                      onClick={() => selectPaymentMethod('banco')}
-                      className="w-full bg-white border border-slate-200 hover:border-slate-350 rounded-2xl p-5 flex items-center justify-between shadow-sm transition-all group active:scale-[0.99] cursor-pointer"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center text-slate-700">
-                          <Landmark size={20} />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-black text-slate-900">Cuenta bancaria</h4>
-                          <p className="text-xs text-slate-400 font-bold mt-0.5">Realiza una transferencia desde tu banca</p>
-                        </div>
+                    {loadingMethods ? (
+                      <div className="py-12 flex flex-col items-center justify-center gap-2">
+                        <Loader2 className="w-6 h-6 text-[#1a4d2e] animate-spin" />
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Cargando métodos de pago...</span>
                       </div>
-                      <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-600 transition-colors" />
-                    </button>
+                    ) : dbMethods.length === 0 ? (
+                      <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center shadow-sm">
+                        <span className="text-xs text-slate-500 font-semibold">No hay métodos de pago activos configurados en este momento. Por favor contacte con soporte.</span>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Option 1: Cuenta bancaria */}
+                        {bancoMethod && (
+                          <button
+                            type="button"
+                            onClick={() => selectPaymentMethod('banco')}
+                            className="w-full bg-white border border-slate-200 hover:border-slate-350 rounded-2xl p-5 flex items-center justify-between shadow-sm transition-all group active:scale-[0.99] cursor-pointer"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center text-slate-700">
+                                <Landmark size={20} />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-black text-slate-900">{bancoMethod.nombre}</h4>
+                                <p className="text-xs text-slate-400 font-bold mt-0.5">Realiza una transferencia desde tu banca</p>
+                              </div>
+                            </div>
+                            <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-600 transition-colors" />
+                          </button>
+                        )}
 
-                    {/* Option 2: Yape */}
-                    <button
-                      type="button"
-                      onClick={() => selectPaymentMethod('yape')}
-                      className="w-full bg-white border border-slate-200 hover:border-slate-350 rounded-2xl p-5 flex items-center justify-between shadow-sm transition-all group active:scale-[0.99] cursor-pointer"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-purple-50 border border-purple-100 rounded-xl flex items-center justify-center">
-                          <YapeLogo className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-black text-slate-900">Yape</h4>
-                          <p className="text-xs text-slate-400 font-bold mt-0.5">Paga de forma rápida con Yape</p>
-                        </div>
-                      </div>
-                      <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-600 transition-colors" />
-                    </button>
+                        {/* Option 2: Yape */}
+                        {yapeMethod && (
+                          <button
+                            type="button"
+                            onClick={() => selectPaymentMethod('yape')}
+                            className="w-full bg-white border border-slate-200 hover:border-slate-350 rounded-2xl p-5 flex items-center justify-between shadow-sm transition-all group active:scale-[0.99] cursor-pointer"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-purple-50 border border-purple-100 rounded-xl flex items-center justify-center">
+                                <YapeLogo className="w-6 h-6" />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-black text-slate-900">{yapeMethod.nombre}</h4>
+                                <p className="text-xs text-slate-400 font-bold mt-0.5">Paga de forma rápida con Yape</p>
+                              </div>
+                            </div>
+                            <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-600 transition-colors" />
+                          </button>
+                        )}
 
-                    {/* Option 3: Plin */}
-                    <button
-                      type="button"
-                      onClick={() => selectPaymentMethod('plin')}
-                      className="w-full bg-white border border-slate-200 hover:border-slate-350 rounded-2xl p-5 flex items-center justify-between shadow-sm transition-all group active:scale-[0.99] cursor-pointer"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-cyan-50 border border-cyan-100 rounded-xl flex items-center justify-center">
-                          <PlinLogo className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-black text-slate-900">Plin</h4>
-                          <p className="text-xs text-slate-400 font-bold mt-0.5">Paga de forma rápida con Plin</p>
-                        </div>
-                      </div>
-                      <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-600 transition-colors" />
-                    </button>
+                        {/* Option 3: Plin */}
+                        {plinMethod && (
+                          <button
+                            type="button"
+                            onClick={() => selectPaymentMethod('plin')}
+                            className="w-full bg-white border border-slate-200 hover:border-slate-350 rounded-2xl p-5 flex items-center justify-between shadow-sm transition-all group active:scale-[0.99] cursor-pointer"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-cyan-50 border border-cyan-100 rounded-xl flex items-center justify-center">
+                                <PlinLogo className="w-6 h-6" />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-black text-slate-900">{plinMethod.nombre}</h4>
+                                <p className="text-xs text-slate-400 font-bold mt-0.5">Paga de forma rápida con Plin</p>
+                              </div>
+                            </div>
+                            <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-600 transition-colors" />
+                          </button>
+                        )}
 
-                    {/* Option 4: QR de pago */}
-                    <button
-                      type="button"
-                      onClick={() => selectPaymentMethod('qr')}
-                      className="w-full bg-white border border-slate-200 hover:border-slate-350 rounded-2xl p-5 flex items-center justify-between shadow-sm transition-all group active:scale-[0.99] cursor-pointer"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center text-slate-700">
-                          <QrCode size={20} />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-black text-slate-900">QR de pago</h4>
-                          <p className="text-xs text-slate-400 font-bold mt-0.5">Escanea y paga desde tu app bancaria</p>
-                        </div>
-                      </div>
-                      <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-600 transition-colors" />
-                    </button>
+                        {/* Option 4: QR de pago */}
+                        {qrMethod && (
+                          <button
+                            type="button"
+                            onClick={() => selectPaymentMethod('qr')}
+                            className="w-full bg-white border border-slate-200 hover:border-slate-350 rounded-2xl p-5 flex items-center justify-between shadow-sm transition-all group active:scale-[0.99] cursor-pointer"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center text-slate-700">
+                                <QrCode size={20} />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-black text-slate-900">{qrMethod.nombre}</h4>
+                                <p className="text-xs text-slate-400 font-bold mt-0.5">Escanea y paga desde tu app bancaria</p>
+                              </div>
+                            </div>
+                            <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-600 transition-colors" />
+                          </button>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -541,26 +631,43 @@ const PaymentPage: React.FC = () => {
 
                     {paymentMethod === 'banco' ? (
                       /* Transfer details table */
-                      <div className="space-y-2">
+                      <div className="space-y-2 animate-in fade-in duration-200">
                         <div className="border border-slate-200 bg-slate-50/50 rounded-xl p-3 space-y-2">
                           <div className="flex justify-between items-center text-[11px] border-b border-slate-100 pb-1.5">
                             <span className="text-slate-400 font-bold uppercase tracking-wider text-[8px]">Banco</span>
-                            <span className="text-slate-800 font-black">BCP (Banco de Crédito del Perú)</span>
+                            <span className="text-slate-800 font-black">{bancoMethod?.nombre || "Cuenta Bancaria"}</span>
                           </div>
-                          <div className="flex justify-between items-center text-[11px] border-b border-slate-100 pb-1.5">
-                            <span className="text-slate-400 font-bold uppercase tracking-wider text-[8px]">Cuenta Corriente</span>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-slate-800 font-black">193-4567890-0-12</span>
-                              <button type="button" onClick={() => handleCopyNumber("193-4567890-0-12")} className="text-[#1a4d2e] hover:underline font-bold text-[9px]">Copiar</button>
+                          {bancoMethod?.numero && bancoMethod.numero.includes(' | CCI: ') ? (
+                            (() => {
+                              const [accNum, cci] = bancoMethod.numero.split(' | CCI: ');
+                              return (
+                                <>
+                                  <div className="flex justify-between items-center text-[11px] border-b border-slate-100 pb-1.5">
+                                    <span className="text-slate-400 font-bold uppercase tracking-wider text-[8px]">Nº de Cuenta</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-slate-800 font-black">{accNum}</span>
+                                      <button type="button" onClick={() => handleCopyNumber(accNum)} className="text-[#1a4d2e] hover:underline font-bold text-[9px]">Copiar</button>
+                                    </div>
+                                  </div>
+                                  <div className="flex justify-between items-center text-[11px]">
+                                    <span className="text-slate-400 font-bold uppercase tracking-wider text-[8px]">CCI</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-slate-800 font-black">{cci}</span>
+                                      <button type="button" onClick={() => handleCopyNumber(cci)} className="text-[#1a4d2e] hover:underline font-bold text-[9px]">Copiar</button>
+                                    </div>
+                                  </div>
+                                </>
+                              );
+                            })()
+                          ) : (
+                            <div className="flex justify-between items-center text-[11px]">
+                              <span className="text-slate-400 font-bold uppercase tracking-wider text-[8px]">Datos de Cuenta / CCI</span>
+                              <div className="flex items-center gap-1.5 overflow-hidden">
+                                <span className="text-slate-800 font-black truncate max-w-[200px]" title={bancoMethod?.numero}>{bancoMethod?.numero}</span>
+                                <button type="button" onClick={() => handleCopyNumber(bancoMethod?.numero || "")} className="text-[#1a4d2e] hover:underline font-bold text-[9px] flex-shrink-0">Copiar</button>
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex justify-between items-center text-[11px]">
-                            <span className="text-slate-400 font-bold uppercase tracking-wider text-[8px]">CCI</span>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-slate-800 font-black">002-19300456789001214</span>
-                              <button type="button" onClick={() => handleCopyNumber("002-19300456789001214")} className="text-[#1a4d2e] hover:underline font-bold text-[9px]">Copiar</button>
-                            </div>
-                          </div>
+                          )}
                         </div>
                         <div className="text-[9px] text-slate-400 font-semibold px-1">
                           A nombre de: <strong>Amazonia Diario S.A.C.</strong>
@@ -572,13 +679,13 @@ const PaymentPage: React.FC = () => {
                         <div className="flex-1 border border-slate-200 bg-slate-50/50 rounded-xl p-3.5 flex flex-col justify-between">
                           <div>
                             <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">
-                              Número de {paymentMethod === 'yape' ? 'Yape' : paymentMethod === 'plin' ? 'Plin' : 'Contacto'}
+                              Número / Referencia
                             </span>
                             <div className="flex items-center gap-2">
-                              <span className="text-lg font-black text-slate-900 tracking-wide leading-none">987 654 321</span>
+                              <span className="text-lg font-black text-slate-900 tracking-wide leading-none">{currentMethodDetails?.numero}</span>
                               <button
                                 type="button"
-                                onClick={() => handleCopyNumber("987654321")}
+                                onClick={() => handleCopyNumber(currentMethodDetails?.numero || "")}
                                 className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold border border-slate-200 rounded bg-white hover:bg-slate-50 text-[#1a4d2e] transition-all cursor-pointer leading-none"
                               >
                                 <Copy size={9} /> {isCopied ? 'Copiado' : 'Copiar'}
@@ -592,13 +699,26 @@ const PaymentPage: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className={`w-full sm:w-36 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1.5 text-white text-center shadow-md ${
-                          paymentMethod === 'yape' ? 'bg-[#74227E]' : paymentMethod === 'plin' ? 'bg-[#00B1C9]' : 'bg-[#0f172a]'
-                        }`}>
+                        <div 
+                          onClick={() => setZoomQrActive(true)}
+                          className={`w-full sm:w-44 rounded-xl p-2.5 flex flex-col items-center justify-center gap-1.5 text-white text-center shadow-md cursor-pointer hover:scale-[1.01] active:scale-[0.99] transition-all select-none ${
+                            paymentMethod === 'yape' ? 'bg-[#74227E]' : paymentMethod === 'plin' ? 'bg-[#00B1C9]' : 'bg-[#0f172a]'
+                          }`}
+                          title="Haz clic para ampliar el código QR"
+                        >
                           <span className="text-[8px] font-black tracking-wide uppercase leading-none">Escanear el QR</span>
-                          <div className="bg-white p-1 rounded-lg shadow-sm">
-                            {paymentMethod === 'yape' ? <YapeQR /> : paymentMethod === 'plin' ? <PlinQR /> : <GeneralQR />}
+                          <div className="bg-white p-1 rounded-lg shadow-sm flex items-center justify-center overflow-hidden w-32 h-32">
+                            {currentMethodDetails?.qr ? (
+                              <img src={getFullImageUrl(currentMethodDetails.qr) || ''} alt="QR Code" className="w-full h-full object-cover rounded" />
+                            ) : paymentMethod === 'yape' ? (
+                              <YapeQR className="w-full h-full" />
+                            ) : paymentMethod === 'plin' ? (
+                              <PlinQR className="w-full h-full" />
+                            ) : (
+                              <GeneralQR className="w-full h-full" />
+                            )}
                           </div>
+                          <span className="text-[7px] text-white/80 font-bold uppercase tracking-wider mt-0.5">🔍 Clic para ampliar</span>
                         </div>
                       </div>
                     )}
@@ -705,6 +825,45 @@ const PaymentPage: React.FC = () => {
         <Lock size={11} className="text-emerald-600" />
         <span>Tu pago está 100% seguro y protegido</span>
       </footer>
+
+      {/* Zoom QR Modal Overlay */}
+      {zoomQrActive && (
+        <div 
+          className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-55 flex items-center justify-center p-4 cursor-zoom-out animate-in fade-in duration-200"
+          onClick={() => setZoomQrActive(false)}
+        >
+          <div 
+            className="max-w-xs w-full relative animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button 
+              onClick={() => setZoomQrActive(false)}
+              className="absolute -top-10 right-0 p-1.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-full transition-colors cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+            <div className="bg-white p-5 rounded-3xl shadow-2xl border border-slate-200 flex flex-col items-center">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 select-none">
+                Escanear Código QR
+              </span>
+              <div className="w-64 h-64 flex items-center justify-center bg-white p-2 rounded-2xl border border-slate-100 overflow-hidden shadow-inner">
+                {currentMethodDetails?.qr ? (
+                  <img src={getFullImageUrl(currentMethodDetails.qr) || ''} alt="QR Code" className="w-full h-full object-contain rounded-xl" />
+                ) : paymentMethod === 'yape' ? (
+                  <YapeQR className="w-full h-full" />
+                ) : paymentMethod === 'plin' ? (
+                  <PlinQR className="w-full h-full" />
+                ) : (
+                  <GeneralQR className="w-full h-full" />
+                )}
+              </div>
+              <span className="text-[9px] font-bold text-slate-450 mt-3 select-none">
+                Haz clic afuera para cerrar
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

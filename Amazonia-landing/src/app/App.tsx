@@ -12,6 +12,7 @@ import { CTASection } from './components/CTASection';
 import { Footer } from './components/Footer';
 import { AuthModal } from './components/AuthModal';
 import { VerifyEmailPage } from './components/VerifyEmailPage';
+import NoticiasPage from './components/NoticiasPage';
 import DashboardLayout from './components/dashboard/DashboardLayout';
 import DashboardOverview from './components/dashboard/DashboardOverview';
 import Editions from './components/dashboard/Editions';
@@ -20,6 +21,7 @@ import Users from './components/dashboard/Users';
 import Subscribers from './components/dashboard/Subscribers';
 import Purchases from './components/dashboard/Purchases';
 import Plans from './components/dashboard/Plans';
+import PaymentMethodsAdmin from './components/dashboard/PaymentMethodsAdmin';
 import LandingConfig from './components/dashboard/LandingConfig';
 import LandingEditions from './components/dashboard/LandingEditions';
 import LandingNews from './components/dashboard/LandingNews';
@@ -87,6 +89,7 @@ function AppContent() {
       />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/payment" element={<PaymentPage />} />
+      <Route path="/noticias" element={<NoticiasPage />} />
       
       {/* Rutas Protegidas del Dashboard */}
       <Route 
@@ -104,6 +107,7 @@ function AppContent() {
         <Route path="users" element={<Users />} />
         <Route path="subscribers" element={<Subscribers />} />
         <Route path="plans" element={<Plans />} />
+        <Route path="payments-methods" element={<PaymentMethodsAdmin />} />
         <Route path="landing-config" element={<LandingConfig />} />
         <Route path="landing-editions" element={<LandingEditions />} />
         <Route path="landing-news" element={<LandingNews />} />
@@ -116,13 +120,17 @@ function AppContent() {
   );
 }
 
+import { PWAProvider } from './contexts/PWAContext';
+
 export default function App() {
   return (
     <AuthProvider>
-      <Router>
-        <AppContent />
-        <Toaster position="top-right" richColors />
-      </Router>
+      <PWAProvider>
+        <Router>
+          <AppContent />
+          <Toaster position="top-right" richColors />
+        </Router>
+      </PWAProvider>
     </AuthProvider>
   );
 }

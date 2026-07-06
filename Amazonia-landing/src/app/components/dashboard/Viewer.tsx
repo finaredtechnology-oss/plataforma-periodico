@@ -25,14 +25,24 @@ interface Edition {
 }
 
 const getFullImageUrl = (path: string | null) => {
-  if (!path) return null;
+  if (!path) return '';
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
-  const backendHost = import.meta.env.VITE_API_URL 
-    ? import.meta.env.VITE_API_URL.replace('/api/v1', '') 
-    : 'http://127.0.0.1:8000';
-  return `${backendHost}${path}`;
+  let cleanPath = path;
+  if (!cleanPath.startsWith('/')) {
+    cleanPath = '/' + cleanPath;
+  }
+  if (!cleanPath.startsWith('/media/')) {
+    cleanPath = '/media' + cleanPath;
+  }
+  let backendHost = '';
+  if (import.meta.env.VITE_API_URL) {
+    if (import.meta.env.VITE_API_URL.startsWith('http://') || import.meta.env.VITE_API_URL.startsWith('https://')) {
+      backendHost = import.meta.env.VITE_API_URL.replace('/api/v1', '');
+    }
+  }
+  return `${backendHost}${encodeURI(cleanPath)}`;
 };
 
 const parseCollectionType = (codigo: string): string => {
@@ -62,6 +72,47 @@ export const Viewer: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [zoom, setZoom] = useState<number>(100);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  
+  // Expanded & Touch Zoom States
+  const [isExpandedView, setIsExpandedView] = useState<boolean>(false);
+  const [touchZoom, setTouchZoom] = useState<number>(100);
+  const [startDist, setStartDist] = useState<number>(0);
+  const [startZoom, setStartZoom] = useState<number>(100);
+  const lastTapRef = useRef<number>(0);
+
+  // Touch Gesture Handlers for Pinch & Double-tap Zoom
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 1) {
+      const now = Date.now();
+      if (now - lastTapRef.current < 300) {
+        // Double-tap: Toggle zoom
+        setTouchZoom(prev => prev > 100 ? 100 : 220);
+      }
+      lastTapRef.current = now;
+    } else if (e.touches.length === 2) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      setStartDist(dist);
+      setStartZoom(touchZoom);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 2 && startDist > 0) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const factor = dist / startDist;
+      // Limit scale factor
+      const newZoom = Math.min(300, Math.max(100, startZoom * factor));
+      setTouchZoom(newZoom);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setStartDist(0);
+  };
   
   // Loaded images map (pageNumber -> Blob Object URL)
   const [loadedPages, setLoadedPages] = useState<{ [page: number]: string }>({});
@@ -173,6 +224,8 @@ export const Viewer: React.FC = () => {
       setLoadingPagesState({});
       setCurrentPage(1);
       setZoom(100);
+      setIsExpandedView(false);
+      setTouchZoom(100);
     }
   }, [isReaderOpen]);
 
@@ -439,62 +492,90 @@ export const Viewer: React.FC = () => {
         className="fixed inset-0 z-[100] bg-[#080d1a] text-white flex flex-col justify-between select-none animate-in fade-in duration-350"
       >
         {/* Header Toolbar */}
-        <div className="bg-[#0b1329]/90 border-b border-white/10 px-4 md:px-6 py-3 md:py-4 flex flex-col sm:flex-row items-center justify-between gap-3 flex-shrink-0 backdrop-blur-md">
-          <div className="space-y-0.5 text-center sm:text-left">
-            <span className="text-[9px] text-sky-400 font-bold tracking-widest uppercase">
-              Visor Protegido — {parseCollectionType(selectedEdition.codigo)}
-            </span>
-            <h2 className="text-xs sm:text-sm md:text-base font-black tracking-tight flex items-center justify-center sm:justify-start gap-2">
-              {selectedEdition.titulo} <span className="text-slate-500 text-xs font-mono font-bold">({selectedEdition.codigo})</span>
-            </h2>
-          </div>
-
-          {/* Controls panel */}
-          <div className="flex items-center gap-2 md:gap-4">
-            {/* Zoom Controls */}
-            <div className="hidden sm:flex bg-slate-900 border border-white/10 rounded-xl p-1 text-slate-400 items-center">
-              <button 
-                onClick={() => setZoom(prev => Math.max(50, prev - 25))}
-                className="p-1.5 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                title="Zoom Out"
-              >
-                <ZoomOut className="w-4 h-4" />
-              </button>
-              <span className="text-xs font-bold px-2 w-12 text-center text-white">{zoom}%</span>
-              <button 
-                onClick={() => setZoom(prev => Math.min(250, prev + 25))}
-                className="p-1.5 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                title="Zoom In"
-              >
-                <ZoomIn className="w-4 h-4" />
-              </button>
+        {!isExpandedView && (
+          <div className="bg-[#0b1329]/90 border-b border-white/10 px-4 md:px-6 py-3 md:py-4 flex flex-col sm:flex-row items-center justify-between gap-3 flex-shrink-0 backdrop-blur-md">
+            <div className="space-y-0.5 text-center sm:text-left">
+              <span className="text-[9px] text-sky-400 font-bold tracking-widest uppercase">
+                Visor Protegido — {parseCollectionType(selectedEdition.codigo)}
+              </span>
+              <h2 className="text-xs sm:text-sm md:text-base font-black tracking-tight flex items-center justify-center sm:justify-start gap-2">
+                {selectedEdition.titulo} <span className="text-slate-500 text-xs font-mono font-bold">({selectedEdition.codigo})</span>
+              </h2>
             </div>
 
-            {/* Fullscreen Button */}
-            <button 
-              onClick={toggleFullscreen}
-              className="p-2.5 bg-slate-900 border border-white/10 hover:text-white text-slate-400 rounded-xl transition-all hidden sm:block"
-              title={isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-            >
-              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </button>
+            {/* Controls panel */}
+            <div className="flex items-center gap-2 md:gap-4">
+              {/* Zoom Controls */}
+              <div className="hidden sm:flex bg-slate-900 border border-white/10 rounded-xl p-1 text-slate-400 items-center">
+                <button 
+                  onClick={() => setZoom(prev => Math.max(50, prev - 25))}
+                  className="p-1.5 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                  title="Zoom Out"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+                <span className="text-xs font-bold px-2 w-12 text-center text-white">{zoom}%</span>
+                <button 
+                  onClick={() => setZoom(prev => Math.min(250, prev + 25))}
+                  className="p-1.5 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                  title="Zoom In"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+              </div>
 
-            {/* Close Button */}
-            <button 
-              onClick={() => {
-                setIsReaderOpen(false);
-                navigate('/dashboard');
-              }}
-              className="flex items-center gap-1.5 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500 hover:text-white text-rose-400 font-bold text-xs py-2 px-3.5 rounded-xl transition-all"
-            >
-              <X className="w-4 h-4" /> <span className="hidden sm:inline">Cerrar Visor</span>
-            </button>
+              {/* Fullscreen Button */}
+              <button 
+                onClick={toggleFullscreen}
+                className="p-2.5 bg-slate-900 border border-white/10 hover:text-white text-slate-400 rounded-xl transition-all hidden sm:block"
+                title={isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+              >
+                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </button>
+
+              {/* Ampliar Vista Button */}
+              <button 
+                onClick={() => {
+                  setIsExpandedView(true);
+                  setTouchZoom(100);
+                }}
+                className="flex items-center gap-1.5 bg-sky-500/10 border border-sky-500/20 hover:bg-sky-500 hover:text-white text-sky-400 font-bold text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer"
+                title="Ampliar Vista de Lectura (Habilita Zoom Táctil)"
+              >
+                <Maximize2 className="w-4 h-4" /> <span>Ampliar</span>
+              </button>
+
+              {/* Close Button */}
+              <button 
+                onClick={() => {
+                  setIsReaderOpen(false);
+                  navigate('/dashboard');
+                }}
+                className="flex items-center gap-1.5 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500 hover:text-white text-rose-400 font-bold text-xs py-2 px-3.5 rounded-xl transition-all"
+              >
+                <X className="w-4 h-4" /> <span className="hidden sm:inline">Cerrar Visor</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Viewport Area */}
         <div className="flex-grow flex items-center justify-between p-4 relative overflow-hidden bg-[#050914] bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[#0d162d] via-[#050914] to-[#02050c]">
           
+          {/* Floating Close Button for Expanded View */}
+          {isExpandedView && (
+            <button 
+              onClick={() => {
+                setIsExpandedView(false);
+                setTouchZoom(100);
+              }}
+              className="absolute top-4 right-4 z-50 bg-rose-500/90 hover:bg-rose-500 text-white p-3 rounded-full shadow-2xl transition-all border border-rose-450/20 active:scale-95 cursor-pointer flex items-center justify-center hover:bg-rose-600"
+              title="Salir de Vista Ampliada"
+            >
+              <X className="w-5 h-5 stroke-[2.5]" />
+            </button>
+          )}
+
           {/* Left page switcher trigger */}
           <button 
             onClick={handlePrevPage}
@@ -508,7 +589,7 @@ export const Viewer: React.FC = () => {
           <div className="w-full h-full flex items-center justify-center p-2 md:p-6 overflow-auto">
             <div 
               className="flex items-center justify-center origin-center transition-all duration-300"
-              style={{ transform: `scale(${zoom / 100})` }}
+              style={{ transform: isExpandedView ? 'scale(1)' : `scale(${zoom / 100})` }}
             >
               {selectedEdition.numero_paginas === 0 || !selectedEdition.numero_paginas ? (
                 /* No pages fallback placeholder */
@@ -537,28 +618,66 @@ export const Viewer: React.FC = () => {
                 >
                   
                   {/* Double page view wrapper */}
-                  {isMobile || currentPage === 1 ? (
-                    /* Single Center Page (e.g. Cover Page, or mobile mode) */
-                    <div className="bg-[#181d2a] p-1.5 rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.85)] border border-white/10 max-w-[85vw] max-h-[70vh] aspect-[3/4] overflow-hidden flex items-center justify-center">
-                      {loadingPagesState[currentPage] === 'loading' && (
-                        <div className="absolute inset-0 bg-[#0e121b]/95 rounded-2xl flex flex-col items-center justify-center gap-3">
-                          <Loader2 className="w-10 h-10 text-sky-400 animate-spin" />
-                          <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider animate-pulse">Servidor seguro...</span>
-                        </div>
-                      )}
-                      {loadingPagesState[currentPage] === 'error' && (
-                        <div className="absolute inset-0 bg-[#0e121b]/95 rounded-2xl flex flex-col items-center justify-center gap-3 p-6 text-center text-rose-400 font-bold text-xs">
-                          <X className="w-8 h-8 text-rose-500" /> Error al leer página {currentPage}
-                        </div>
-                      )}
-                      {loadedPages[currentPage] && (
-                        <img 
-                          src={loadedPages[currentPage]} 
-                          className="w-full h-full object-contain rounded-xl select-none"
-                          alt={`Página ${currentPage}`} 
-                        />
-                      )}
-                    </div>
+                  {isMobile || isExpandedView || currentPage === 1 ? (
+                    /* Single Center Page (e.g. Cover Page, or mobile mode, or expanded reader) */
+                    isExpandedView ? (
+                      <div 
+                        className={`w-[85vw] h-[85vh] overflow-auto no-scrollbar flex relative rounded-2xl ${
+                          touchZoom > 100 ? 'items-start justify-start p-4' : 'items-center justify-center p-2'
+                        }`}
+                        onTouchStart={handleTouchStart}
+                        onTouchMove={handleTouchMove}
+                        onTouchEnd={handleTouchEnd}
+                      >
+                        {loadingPagesState[currentPage] === 'loading' && (
+                          <div className="absolute inset-0 bg-[#0e121b]/95 rounded-2xl flex flex-col items-center justify-center gap-3 z-10">
+                            <Loader2 className="w-10 h-10 text-sky-400 animate-spin" />
+                            <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider animate-pulse">Servidor seguro...</span>
+                          </div>
+                        )}
+                        {loadingPagesState[currentPage] === 'error' && (
+                          <div className="absolute inset-0 bg-[#0e121b]/95 rounded-2xl flex flex-col items-center justify-center gap-3 p-6 text-center text-rose-400 font-bold text-xs z-10">
+                            <X className="w-8 h-8 text-rose-500" /> Error al leer página {currentPage}
+                          </div>
+                        )}
+                        {loadedPages[currentPage] && (
+                          <img 
+                            src={loadedPages[currentPage]} 
+                            className="object-contain rounded-xl select-none"
+                            alt={`Página ${currentPage}`} 
+                            style={{
+                              width: touchZoom > 100 ? `${touchZoom}%` : '100%',
+                              height: touchZoom > 100 ? 'auto' : '100%',
+                              maxWidth: touchZoom > 100 ? 'none' : '100%',
+                              maxHeight: touchZoom > 100 ? 'none' : '100%',
+                              transition: 'width 0.1s ease-out'
+                            }}
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      /* Regular Single Page View */
+                      <div className="bg-[#181d2a] p-1.5 rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.85)] border border-white/10 max-w-[85vw] max-h-[70vh] aspect-[3/4] overflow-hidden flex items-center justify-center">
+                        {loadingPagesState[currentPage] === 'loading' && (
+                          <div className="absolute inset-0 bg-[#0e121b]/95 rounded-2xl flex flex-col items-center justify-center gap-3">
+                            <Loader2 className="w-10 h-10 text-sky-400 animate-spin" />
+                            <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider animate-pulse">Servidor seguro...</span>
+                          </div>
+                        )}
+                        {loadingPagesState[currentPage] === 'error' && (
+                          <div className="absolute inset-0 bg-[#0e121b]/95 rounded-2xl flex flex-col items-center justify-center gap-3 p-6 text-center text-rose-400 font-bold text-xs">
+                            <X className="w-8 h-8 text-rose-500" /> Error al leer página {currentPage}
+                          </div>
+                        )}
+                        {loadedPages[currentPage] && (
+                          <img 
+                            src={loadedPages[currentPage]} 
+                            className="w-full h-full object-contain rounded-xl select-none"
+                            alt={`Página ${currentPage}`} 
+                          />
+                        )}
+                      </div>
+                    )
                   ) : (
                     /* Double Page Spread side-by-side (Book representation) */
                     <div className="flex shadow-[0_30px_70px_-20px_rgba(0,0,0,0.95)] rounded-2xl overflow-hidden border border-white/15">
@@ -644,7 +763,7 @@ export const Viewer: React.FC = () => {
         </div>
 
         {/* Navigation Controls Footer */}
-        {selectedEdition.numero_paginas && selectedEdition.numero_paginas > 0 ? (
+        {!isExpandedView && selectedEdition.numero_paginas && selectedEdition.numero_paginas > 0 ? (
           <div className="bg-[#0b1329]/95 border-t border-white/10 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4 flex-shrink-0 backdrop-blur-md">
             <div className="text-xs text-slate-400 font-bold">
               Navega usando los botones, el slider inferior o las flechas <kbd className="bg-slate-800 border border-white/10 px-1 py-0.5 rounded text-white mx-0.5 font-mono">←</kbd> y <kbd className="bg-slate-800 border border-white/10 px-1 py-0.5 rounded text-white mx-0.5 font-mono">→</kbd> de tu teclado.

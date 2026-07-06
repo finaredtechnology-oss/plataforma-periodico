@@ -309,3 +309,43 @@ class SafeUtilitiesAndConfigTest(SimpleTestCase):
         mock_using.return_value.get.side_effect = Exception("Not found")
         val_fallback = get_system_parameter_value("VIGENCIA_VERIFICACION_CORREO_HORAS", 24)
         self.assertEqual(val_fallback, 24)
+
+
+from rest_framework.test import APIRequestFactory, force_authenticate
+from apps.accounts.views.activities import UserActivitiesListView
+
+@patch('django.db.transaction.atomic', DummyAtomic)
+@patch('apps.reading.models.sesion_lectura.SesionLectura.objects.using')
+@patch('apps.accounts.models.sesion.Sesion.objects.using')
+@patch('apps.purchases.models.compra.Compra.objects.using')
+class UserActivitiesListViewTest(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        self.databases = {'default', 'periodico_db'}
+        self.mock_user = Usuario(
+            id=1,
+            usr_correo="user@example.com",
+            nombres="John",
+            apellidos="Doe",
+            estado="ACTIVO",
+            correo_verificado=True
+        )
+
+    def test_get_activities_empty(self, mock_compra, mock_sesion, mock_lectura):
+        """
+        Verify that if no activities exist, the endpoint returns an empty list.
+        """
+        mock_lectura.return_value.filter.return_value.select_related.return_value.order_by.return_value = []
+        mock_sesion.return_value.filter.return_value.order_by.return_value = []
+        mock_compra.return_value.filter.return_value.select_related.return_value.order_by.return_value = []
+
+        factory = APIRequestFactory()
+        request = factory.get('/api/v1/auth/activities/')
+        force_authenticate(request, user=self.mock_user)
+
+        view = UserActivitiesListView.as_view()
+        response = view(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, [])
+

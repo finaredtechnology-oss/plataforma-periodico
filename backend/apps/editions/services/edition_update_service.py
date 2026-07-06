@@ -27,7 +27,7 @@ def update_edition(*, company_id: int, edition_id: int, user: Usuario, data: dic
         # Whitelist of fields that can be edited
         allowed_fields = {
             'titulo', 'descripcion_corta', 'descripcion_larga',
-            'fecha_edicion', 'codigo', 'modalidad', 'precio', 'moneda',
+            'codigo', 'modalidad',
             'slug', 'numero_paginas', 'es_destacada', 'permite_compra',
             'permite_muestra', 'paginas_muestra'
         }
